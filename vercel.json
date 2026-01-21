@@ -1,13 +1,5 @@
 {
   "outputDirectory": "build",
-  "functions": {
-    "api/takealot/[...path].js": {
-      "runtime": "nodejs20.x"
-    },
-    "api/image.js": {
-      "runtime": "nodejs20.x"
-    }
-  },
   "routes": [
     { "src": "/api/(.*)", "dest": "/api/$1" }
   ]
