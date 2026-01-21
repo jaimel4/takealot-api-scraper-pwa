@@ -49,6 +49,8 @@
 
   let loadingDepartments = $state(false);
   let loadingCategories = $state(false);
+  let departmentsError = $state<string | null>(null);
+  let categoriesError = $state<string | null>(null);
 
   const sortOptions = [
     { value: "Price+Descending", label: "Price (High to Low)" },
@@ -80,11 +82,14 @@
   async function loadDepartments() {
     if (!api) return;
     loadingDepartments = true;
+    departmentsError = null;
     try {
       departments = await api.listDepartments();
     } catch (error) {
       console.error("Failed to load departments:", error);
       departments = [];
+      departmentsError =
+        error instanceof Error ? error.message : "Failed to load departments";
     } finally {
       loadingDepartments = false;
     }
@@ -102,11 +107,14 @@
 
     if (selectedDepartment && api) {
       loadingCategories = true;
+      categoriesError = null;
       try {
         categories = await api.listDepartmentCategories(selectedDepartment);
       } catch (error) {
         console.error("Failed to load categories:", error);
         categories = [];
+        categoriesError =
+          error instanceof Error ? error.message : "Failed to load categories";
       } finally {
         loadingCategories = false;
       }
@@ -466,6 +474,17 @@
     {/if}
   </div>
 
+  {#if departmentsError}
+    <div class="form-error">
+      <span>{departmentsError}</span>
+      <button type="button" onclick={loadDepartments}>Retry</button>
+    </div>
+  {:else if categoriesError}
+    <div class="form-error">
+      <span>{categoriesError}</span>
+    </div>
+  {/if}
+
   {#if isCustomSort}
     <div class="custom-sort-section">
       <div class="custom-sort-header">
@@ -566,6 +585,29 @@
     display: flex;
     align-items: flex-end;
     gap: 8px;
+  }
+
+  .form-error {
+    margin-top: 8px;
+    padding: 6px 10px;
+    border: 1px solid rgba(239, 68, 68, 0.4);
+    background: rgba(239, 68, 68, 0.1);
+    color: #ef4444;
+    border-radius: 4px;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .form-error button {
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-decoration: underline;
+    cursor: pointer;
+    font-size: 12px;
+    padding: 0;
   }
 
   .form-grid {

@@ -49,9 +49,13 @@ export class TakealotBrowserApi {
     if (this.apiEndpoint) {
       return this.apiEndpoint;
     }
-    this.apiEndpoint = isTauri
-      ? "https://api.takealot.com/rest/"
-      : "/api/takealot/";
+    if (isTauri) {
+      this.apiEndpoint = "https://api.takealot.com/rest/";
+    } else if (typeof window !== "undefined") {
+      this.apiEndpoint = `${window.location.origin}/api/takealot/`;
+    } else {
+      this.apiEndpoint = "/api/takealot/";
+    }
     return this.apiEndpoint;
   }
 
@@ -116,7 +120,7 @@ export class TakealotBrowserApi {
       }));
     } catch (error) {
       console.error("Failed to fetch departments:", error);
-      return [];
+      throw error;
     }
   }
 
@@ -161,7 +165,7 @@ export class TakealotBrowserApi {
       return f;
     } catch (error) {
       console.error("Failed to fetch categories:", error);
-      return [];
+      throw error;
     }
   }
 
