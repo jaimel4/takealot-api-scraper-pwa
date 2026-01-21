@@ -1,8 +1,6 @@
 <script lang="ts">
   import type { ProductTableRow } from "$lib/takealot/types";
-  import { save } from "@tauri-apps/plugin-dialog";
-  import { writeFile } from "@tauri-apps/plugin-fs";
-  import { invoke } from "@tauri-apps/api/core";
+  import { isTauri } from "$lib/platform";
   import ExcelJS from "exceljs";
 
   export interface RequestInfo {
@@ -51,6 +49,41 @@
 
   // Track the products array reference to detect actual changes
   let previousProductsRef: ProductTableRow[] | null = null;
+
+  async function fetchPreviewImage(url: string): Promise<string | null> {
+    if (!url) return null;
+    if (!isTauri) {
+      return url;
+    }
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<string>("fetch_image", {
+      url,
+      proxyUrl: proxyUrl || null,
+    });
+  }
+
+  async function fetchImageBuffer(url: string): Promise<Uint8Array | null> {
+    if (!url) return null;
+    if (!isTauri) {
+      const response = await fetch(
+        `/api/image?url=${encodeURIComponent(url)}`
+      );
+      if (!response.ok) {
+        return null;
+      }
+      const buffer = await response.arrayBuffer();
+      return new Uint8Array(buffer);
+    }
+    const { invoke } = await import("@tauri-apps/api/core");
+    const buffer = await invoke<number[]>("fetch_image_buffer", {
+      url,
+      proxyUrl: proxyUrl || null,
+    });
+    if (buffer.length === 0) {
+      return null;
+    }
+    return new Uint8Array(buffer);
+  }
 
   // Load images via Tauri when products change
   $effect(() => {
@@ -113,12 +146,12 @@
           console.log(`[loadImages] [${batchIdx}] Fetching: ${product.image}`);
 
           try {
-            const base64Image = await invoke<string>("fetch_image", {
-              url: product.image,
-              proxyUrl: proxyUrl || null,
-            });
+            const previewImage = await fetchPreviewImage(product.image);
+            if (!previewImage) {
+              return null;
+            }
             console.log(`[loadImages] [${batchIdx}] SUCCESS: ${product.image.substring(0, 50)}...`);
-            return { url: product.image, data: base64Image };
+            return { url: product.image, data: previewImage };
           } catch (err) {
             const errorMsg = String(err);
             console.error(`[loadImages] [${batchIdx}] FAILED: ${product.image}`);
@@ -186,16 +219,12 @@
           await new Promise((resolve) => setTimeout(resolve, delay));
         }
 
-        const buffer = await invoke<number[]>("fetch_image_buffer", {
-          url,
-          proxyUrl: proxyUrl || null,
-        });
-
-        if (buffer.length === 0) {
+        const buffer = await fetchImageBuffer(url);
+        if (!buffer || buffer.length === 0) {
           console.warn("Empty buffer received for:", url);
           return null;
         }
-        return new Uint8Array(buffer);
+        return buffer;
       } catch (err) {
         const errorMsg = String(err);
 
@@ -239,20 +268,24 @@
     exportProgress = { current: 0, total: products.length };
 
     try {
-      const filePath = await save({
-        defaultPath: "takealot-products.xlsx",
-        filters: [
-          {
-            name: "Excel",
-            extensions: ["xlsx"],
-          },
-        ],
-      });
+      let filePath: string | null = null;
+      if (isTauri) {
+        const { save } = await import("@tauri-apps/plugin-dialog");
+        filePath = await save({
+          defaultPath: "takealot-products.xlsx",
+          filters: [
+            {
+              name: "Excel",
+              extensions: ["xlsx"],
+            },
+          ],
+        });
 
-      if (!filePath) {
-        exporting = false;
-        exportProgress = null;
-        return;
+        if (!filePath) {
+          exporting = false;
+          exportProgress = null;
+          return;
+        }
       }
 
       const workbook = new ExcelJS.Workbook();
@@ -306,12 +339,11 @@
         if (product.image) {
           try {
             let imageBuffer: Uint8Array | null = null;
+            const cachedImage = imageCache[product.image];
 
-            // Check if image is already cached (as base64)
-            if (imageCache[product.image]) {
+            if (cachedImage && cachedImage.startsWith("data:")) {
               console.log(`Using cached image for row ${rowIndex}`);
-              // Convert base64 data URL to buffer
-              const base64Data = imageCache[product.image].split(',')[1];
+              const base64Data = cachedImage.split(",")[1];
               const binaryString = atob(base64Data);
               const bytes = new Uint8Array(binaryString.length);
               for (let j = 0; j < binaryString.length; j++) {
@@ -319,9 +351,9 @@
               }
               imageBuffer = bytes;
             } else {
-              // Download image if not cached
+              const downloadUrl = cachedImage || product.image;
               console.log(`Downloading image for row ${rowIndex}`);
-              imageBuffer = await downloadImage(product.image);
+              imageBuffer = await downloadImage(downloadUrl);
             }
 
             if (imageBuffer && imageBuffer.length > 0) {
@@ -353,8 +385,22 @@
       // Generate buffer
       const buffer = await workbook.xlsx.writeBuffer();
 
-      // Write file using Tauri
-      await writeFile(filePath, new Uint8Array(buffer));
+      if (isTauri) {
+        const { writeFile } = await import("@tauri-apps/plugin-fs");
+        await writeFile(filePath as string, new Uint8Array(buffer));
+      } else {
+        const blob = new Blob([buffer], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "takealot-products.xlsx";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
+      }
 
       exportError = null;
       exportSuccess = true;

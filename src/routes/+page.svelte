@@ -5,21 +5,15 @@
   import TableView, {
     type RequestInfo,
   } from "$lib/components/TableView.svelte";
-  import Settings, { type SettingsData } from "$lib/components/Settings.svelte";
+  import Settings from "$lib/components/Settings.svelte";
+  import { defaultSettings, type SettingsData } from "$lib/settings";
+  import { loadSettings, loadCacheEntry, saveCacheEntry } from "$lib/storage";
   import { TakealotBrowserApi } from "$lib/takealot/browser-api";
   import type { ProductTableRow, ProductView } from "$lib/takealot/types";
-  import {
-    BaseDirectory,
-    readTextFile,
-    writeTextFile,
-    mkdir,
-    exists,
-  } from "@tauri-apps/plugin-fs";
-
   let settingsOpen = $state(false);
-  let apiVersion = $state("v-1-16-0");
-  let cacheTtl = $state(86400000); // Default 24 hours in ms
-  let proxyUrl = $state("");
+  let apiVersion = $state(defaultSettings.apiVersion);
+  let cacheTtl = $state(defaultSettings.cacheTtl); // Default 24 hours in ms
+  let proxyUrl = $state(defaultSettings.proxyUrl);
 
   let products = $state<ProductTableRow[]>([]);
   let loading = $state(false);
@@ -49,38 +43,18 @@
   });
 
   async function loadInitialSettings() {
-    try {
-      const content = await readTextFile("settings.json", {
-        baseDir: BaseDirectory.AppData,
-      });
-      const saved = JSON.parse(content) as SettingsData;
-      if (saved.apiVersion) {
-        apiVersion = saved.apiVersion;
-      }
-      if (saved.cacheTtl) {
-        cacheTtl = saved.cacheTtl;
-      }
-      if (saved.proxyUrl !== undefined) {
-        proxyUrl = saved.proxyUrl;
-      }
-    } catch {
-      // Settings file doesn't exist yet, use defaults
+    const saved = await loadSettings();
+    if (!saved) {
+      return;
     }
-  }
-
-  async function ensureCacheDir() {
-    try {
-      const dirExists = await exists(CACHE_DIR, {
-        baseDir: BaseDirectory.AppData,
-      });
-      if (!dirExists) {
-        await mkdir(CACHE_DIR, {
-          baseDir: BaseDirectory.AppData,
-          recursive: true,
-        });
-      }
-    } catch (err) {
-      console.error("Failed to create cache directory:", err);
+    if (saved.apiVersion) {
+      apiVersion = saved.apiVersion;
+    }
+    if (saved.cacheTtl) {
+      cacheTtl = saved.cacheTtl;
+    }
+    if (saved.proxyUrl !== undefined) {
+      proxyUrl = saved.proxyUrl;
     }
   }
 
@@ -94,11 +68,10 @@
 
     // Try to load from disk
     try {
-      const filePath = `${CACHE_DIR}/${slug}.json`;
-      const content = await readTextFile(filePath, {
-        baseDir: BaseDirectory.AppData,
-      });
-      const entry = JSON.parse(content) as CacheEntry;
+      const entry = await loadCacheEntry<CacheEntry>(CACHE_DIR, slug);
+      if (!entry) {
+        return null;
+      }
       // Store in memory cache
       viewsCache[slug] = entry;
       return entry;
@@ -126,11 +99,7 @@
 
     // Save to disk
     try {
-      await ensureCacheDir();
-      const filePath = `${CACHE_DIR}/${slug}.json`;
-      await writeTextFile(filePath, JSON.stringify(entry), {
-        baseDir: BaseDirectory.AppData,
-      });
+      await saveCacheEntry(CACHE_DIR, slug, entry);
     } catch (err) {
       console.error(`Failed to save cache for ${slug}:`, err);
     }

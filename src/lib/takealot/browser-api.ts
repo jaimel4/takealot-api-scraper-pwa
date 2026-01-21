@@ -1,4 +1,4 @@
-import { fetch } from "@tauri-apps/plugin-http";
+import { isTauri } from "$lib/platform";
 import type {
   ProductView,
   ProductTableRow,
@@ -14,7 +14,8 @@ import type {
  * Browser-compatible Takealot API client using Tauri HTTP plugin
  */
 export class TakealotBrowserApi {
-  apiEndpoint = "https://api.takealot.com/rest/";
+  private fetcher: typeof fetch | null = null;
+  private apiEndpoint: string | null = null;
 
   apiPaths = {
     departments: "/cms/merchandised-departments?display_only=True",
@@ -29,6 +30,29 @@ export class TakealotBrowserApi {
 
   constructor(version: string) {
     this.version = version;
+  }
+
+  private async getFetch(): Promise<typeof fetch> {
+    if (this.fetcher) {
+      return this.fetcher;
+    }
+    if (isTauri) {
+      const mod = await import("@tauri-apps/plugin-http");
+      this.fetcher = mod.fetch;
+    } else {
+      this.fetcher = fetch.bind(globalThis);
+    }
+    return this.fetcher;
+  }
+
+  private async getApiEndpoint(): Promise<string> {
+    if (this.apiEndpoint) {
+      return this.apiEndpoint;
+    }
+    this.apiEndpoint = isTauri
+      ? "https://api.takealot.com/rest/"
+      : "/api/takealot/";
+    return this.apiEndpoint;
   }
 
   /**
@@ -73,12 +97,14 @@ export class TakealotBrowserApi {
   }
 
   async listDepartments(): Promise<TakealotDepartment[]> {
+    const httpFetch = await this.getFetch();
+    const apiEndpoint = await this.getApiEndpoint();
     const apiUrl = new URL(
-      `${this.apiEndpoint}${this.version}${this.apiPaths.departments}`
+      `${apiEndpoint}${this.version}${this.apiPaths.departments}`
     );
 
     try {
-      const response = await fetch(apiUrl.toString());
+      const response = await httpFetch(apiUrl.toString());
 
       if (!response.ok) throw new Error(`Can't fetch departments`);
 
@@ -98,8 +124,10 @@ export class TakealotBrowserApi {
     department: TakealotDepartment,
     category?: TakealotCategory
   ): Promise<TakealotCategory[]> {
+    const httpFetch = await this.getFetch();
+    const apiEndpoint = await this.getApiEndpoint();
     const apiUrl = new URL(
-      `${this.apiEndpoint}${this.version}${this.apiPaths.categories}`
+      `${apiEndpoint}${this.version}${this.apiPaths.categories}`
     );
 
     apiUrl.searchParams.append("department_slug", department.slug);
@@ -108,7 +136,7 @@ export class TakealotBrowserApi {
     }
 
     try {
-      const response = await fetch(apiUrl.toString());
+      const response = await httpFetch(apiUrl.toString());
 
       if (!response.ok) throw new Error(`Can't fetch categories`);
 
@@ -144,8 +172,10 @@ export class TakealotBrowserApi {
     after?: string,
     signal?: AbortSignal
   ): Promise<{ views: ProductView[]; after: string }> {
+    const httpFetch = await this.getFetch();
+    const apiEndpoint = await this.getApiEndpoint();
     const apiUrl = new URL(
-      `${this.apiEndpoint}${this.version}${this.apiPaths.views}`
+      `${apiEndpoint}${this.version}${this.apiPaths.views}`
     );
 
     if (after) apiUrl.searchParams.append("after", after);
@@ -154,7 +184,7 @@ export class TakealotBrowserApi {
     apiUrl.searchParams.append("category_slug", category.slug);
     apiUrl.searchParams.append("sort", sort.replace("+", " "));
 
-    const response = await fetch(apiUrl.toString(), { signal });
+    const response = await httpFetch(apiUrl.toString(), { signal });
 
     if (!response.ok) {
       throw new Error(`Can't fetch products views`);
@@ -173,11 +203,13 @@ export class TakealotBrowserApi {
   }
 
   async getProduct(id: string, signal?: AbortSignal): Promise<ProductTableRow> {
+    const httpFetch = await this.getFetch();
+    const apiEndpoint = await this.getApiEndpoint();
     const apiUrl = new URL(
-      `${this.apiEndpoint}${this.version}${this.apiPaths.product}${id}`
+      `${apiEndpoint}${this.version}${this.apiPaths.product}${id}`
     );
 
-    const response = await fetch(apiUrl.toString(), { signal });
+    const response = await httpFetch(apiUrl.toString(), { signal });
 
     if (!response.ok) {
       throw new Error(`Can't fetch product`);

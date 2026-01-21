@@ -1,33 +1,12 @@
 <script lang="ts">
-  import {
-    BaseDirectory,
-    readTextFile,
-    writeTextFile,
-    mkdir,
-    exists,
-  } from "@tauri-apps/plugin-fs";
+  import { defaultSettings, type SettingsData } from "$lib/settings";
+  import { loadSettings, saveSettings } from "$lib/storage";
 
   interface Props {
     isOpen: boolean;
     onClose: () => void;
     onSave: (settings: SettingsData) => void;
   }
-
-  export type SettingsData = {
-    apiVersion: string;
-    cacheDirPath: string;
-    cacheTtl: number;
-    logLevel: string;
-    proxyUrl: string;
-  };
-
-  const defaultSettings: SettingsData = {
-    apiVersion: "v-1-16-0",
-    cacheDirPath: "views.cache",
-    cacheTtl: 86400000,
-    logLevel: "info",
-    proxyUrl: "",
-  };
 
   let { isOpen, onClose, onSave }: Props = $props();
 
@@ -45,29 +24,25 @@
 
   $effect(() => {
     if (isOpen) {
-      loadSettings();
+      loadSettingsFromStorage();
     }
   });
 
-  async function loadSettings() {
-    try {
-      const content = await readTextFile("settings.json", {
-        baseDir: BaseDirectory.AppData,
-      });
-      const saved = JSON.parse(content) as SettingsData;
-      apiVersion = saved.apiVersion || defaultSettings.apiVersion;
-      cacheDirPath = saved.cacheDirPath || defaultSettings.cacheDirPath;
-      cacheTtl = saved.cacheTtl || defaultSettings.cacheTtl;
-      logLevel = saved.logLevel || defaultSettings.logLevel;
-      proxyUrl = saved.proxyUrl || defaultSettings.proxyUrl;
-    } catch {
-      // Settings file doesn't exist yet, use defaults
+  async function loadSettingsFromStorage() {
+    const saved = await loadSettings();
+    if (!saved) {
       apiVersion = defaultSettings.apiVersion;
       cacheDirPath = defaultSettings.cacheDirPath;
       cacheTtl = defaultSettings.cacheTtl;
       logLevel = defaultSettings.logLevel;
       proxyUrl = defaultSettings.proxyUrl;
+      return;
     }
+    apiVersion = saved.apiVersion || defaultSettings.apiVersion;
+    cacheDirPath = saved.cacheDirPath || defaultSettings.cacheDirPath;
+    cacheTtl = saved.cacheTtl || defaultSettings.cacheTtl;
+    logLevel = saved.logLevel || defaultSettings.logLevel;
+    proxyUrl = saved.proxyUrl || defaultSettings.proxyUrl;
   }
 
   async function handleSave() {
@@ -84,17 +59,7 @@
         proxyUrl,
       };
 
-      // Ensure AppData directory exists
-      const appDataExists = await exists("", {
-        baseDir: BaseDirectory.AppData,
-      });
-      if (!appDataExists) {
-        await mkdir("", { baseDir: BaseDirectory.AppData, recursive: true });
-      }
-
-      await writeTextFile("settings.json", JSON.stringify(settings, null, 2), {
-        baseDir: BaseDirectory.AppData,
-      });
+      await saveSettings(settings);
 
       onSave(settings);
       success = true;
